@@ -25,7 +25,7 @@ os.makedirs(test_results_img_folder)
 height = 64
 width = 192
 
-test_results_files = ['test_resutls_90.npy']
+test_results_files = ['test_results_10.npy']
 
 for p_file in tqdm(test_results_files):
     p_file_path = os.path.join(test_results_folder, p_file)

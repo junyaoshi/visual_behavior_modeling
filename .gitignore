@@ -1,0 +1,14 @@
+assembly_data
+assembly_evaluation
+checkpoint
+final_data
+test_results
+main_debug.py
+data_11_30
+.DS_Store
+.idea/
+assembly_evaluation.zip
+new_models/__pycache__/
+new_models/assembly_model.py
+results/
+utils/__pycache__/
