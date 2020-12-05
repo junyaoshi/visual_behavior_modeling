@@ -12,12 +12,13 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 import os
 import time
+import pickle
 import glob
 import shutil
 import itertools
 import numpy as np
 from tqdm import tqdm
-from utils import Bar, Logger, AverageMeter, regression_accuracy, mkdir_p, savefig
+from utils import Bar, Logger, AverageMeter, regression_accuracy, mkdir_p, savefig, load_data, assembly_dataset
 from new_models.assembly_model import TrajPredictor
 
 
@@ -32,6 +33,7 @@ SEED = 1
 WORKERS = 4
 DATA_DIR = 'data_11_30'
 CHECKPOINT = 'checkpoint'
+TRAIN_RATIO = 0.8
 SAVE_TEST_RESULTS = False
 N_CLASSES = 3
 WINDOW_SIZE = 2
@@ -56,137 +58,6 @@ def addDateTime(s = ""):
     date = str(datetime.datetime.now())
     date = date[2:4] + date[5:7] + date[8:10] + '_' + date[11:13] + date[14:16] + date[17:19]
     return s + '_D' + date
-
-
-def load_data(data_dir, window_size=2, train_ratio=0.8, img_dim=(128, 128, 3)):
-    """
-    :param data_dir: directory where assembly data is stored
-    :param window_size: size of sliding window
-    :param train_ratio: the percentage of data used for training
-    :param img_dim: dimensions of the image
-
-    * at the moment, only using the first camera
-
-    return:
-        train_data, test_data, train_target, test_target: normalized training and testing X, y
-        train_seq_inds, test_seq_inds: the indices of training and testing sequences
-    """
-
-    print('Begin loading data from {}...'.format(data_dir))
-
-    h, w, ch = img_dim
-
-    # train-test split
-    seq_dirs = [f.path for f in os.scandir(data_dir) if f.is_dir()]
-    num_seq = len(seq_dirs)
-    split_idx = int(round(train_ratio * num_seq))
-    np.random.shuffle(seq_dirs)
-    train_seqs = seq_dirs[:split_idx]
-    test_seqs = seq_dirs[split_idx:]
-    print('Split data into {} training sequences and {} testing sequences.'.format(len(train_seqs), len(test_seqs)))
-
-    # load training data
-    print('Generating training data...')
-    train_data = np.empty((0, h, w, ch * window_size), np.float)
-    train_target = np.empty((0, h, w, ch), np.float)
-    train_seq_inds = []
-    for seq_ind in tqdm(range(len(train_seqs))):
-        seq_dir = train_seqs[seq_ind]
-        n_seq = int(seq_dir[-1])
-        train_seq_inds.append(n_seq)
-
-        n_cam = 0
-
-        seq_data = []
-        seq_target = []
-
-        cam_dir = os.path.join(seq_dir, '{}'.format(n_cam))
-        num_imgs = len(glob.glob(os.path.join(cam_dir, '*.png')))
-        sliding_window = deque()
-        left = 0
-        right = window_size - 1
-        target_idx = right + 1
-        target_img_path = os.path.join(cam_dir, 'rgb_{}.png'.format(target_idx))
-
-        # populate sliding window with images
-        for window_idx in range(left, right + 1):
-            img_path = os.path.join(cam_dir, 'rgb_{}.png'.format(window_idx))
-            im = np.array(Image.open(img_path)) / 255.0
-            sliding_window.append(im)
-
-        while target_idx < num_imgs:
-            data_imgs = np.dstack(sliding_window)
-            target_img = np.array(Image.open(target_img_path)) / 255.0
-
-            seq_data.append(data_imgs)
-            seq_target.append(target_img)
-
-            left += 1
-            right += 1
-            target_idx += 1
-            target_img_path = os.path.join(cam_dir, 'rgb_{}.png'.format(target_idx))
-
-            sliding_window.popleft()
-            sliding_window.append(target_img)
-
-        seq_data = np.array(seq_data)
-        seq_target = np.array(seq_target)
-        train_data = np.vstack([train_data, seq_data])
-        train_target = np.vstack([train_target, seq_target])
-
-    # load testing data
-    print('Generating testing data...')
-    test_data = np.empty((0, h, w, ch * window_size), np.float)
-    test_target = np.empty((0, h, w, ch), np.float)
-    test_seq_inds = []
-    for seq_ind in tqdm(range(len(test_seqs))):
-        seq_dir = test_seqs[seq_ind]
-        n_seq = int(seq_dir[-1])
-        test_seq_inds.append(n_seq)
-
-        n_cam = 0
-
-        seq_data = []
-        seq_target = []
-
-        cam_dir = os.path.join(seq_dir, '{}'.format(n_cam))
-        num_imgs = len(glob.glob(os.path.join(cam_dir, '*.png')))
-        sliding_window = deque()
-        left = 0
-        right = window_size - 1
-        target_idx = right + 1
-        target_img_path = os.path.join(cam_dir, 'rgb_{}.png'.format(target_idx))
-
-        # populate sliding window with images
-        for window_idx in range(left, right + 1):
-            img_path = os.path.join(cam_dir, 'rgb_{}.png'.format(window_idx))
-            im = np.array(Image.open(img_path)) / 255.0
-            sliding_window.append(im)
-
-        while target_idx < num_imgs:
-            data_imgs = np.dstack(sliding_window)
-            target_img = np.array(Image.open(target_img_path)) / 255.0
-
-            seq_data.append(data_imgs)
-            seq_target.append(target_img)
-
-            left += 1
-            right += 1
-            target_idx += 1
-            target_img_path = os.path.join(cam_dir, 'rgb_{}.png'.format(target_idx))
-
-            sliding_window.popleft()
-            sliding_window.append(target_img)
-
-        seq_data = np.array(seq_data)
-        seq_target = np.array(seq_target)
-        test_data = np.vstack([test_data, seq_data])
-        test_target = np.vstack([test_target, seq_target])
-
-    train_seq_inds = np.array(train_seq_inds)
-    test_seq_inds = np.array(test_seq_inds)
-
-    return train_data, test_data, train_target, test_target, train_seq_inds, test_seq_inds
 
 
 def gradient_loss(output, target, alpha=1):
@@ -237,7 +108,7 @@ def train():
     bar = Bar('Processing', max=len(trainloader))
 
     scores = []
-    for batch_idx, (data, target) in enumerate(trainloader):
+    for batch_idx, (data, target) in enumerate(tqdm(trainloader)):
 
         data = data.permute(0, 3, 1, 2)
         target = target.permute(0, 3, 1, 2)
@@ -300,7 +171,7 @@ def test(save_flag, epoch):
     if save_flag:
         saved_test_results = []
 
-    for batch_idx, (data, target) in enumerate(testloader):
+    for batch_idx, (data, target) in enumerate(tqdm(testloader)):
 
         data = data.permute(0, 3, 1, 2)
         target = target.permute(0, 3, 1, 2)
@@ -395,6 +266,8 @@ if __name__ == '__main__':
                         help='path to save checkpoint (default: checkpoint)')
     parser.add_argument('-d', '--data-dir', default=DATA_DIR, type=str, metavar='PATH',
                         help='path to data')
+    parser.add_argument('--train-ratio', type=float, default=TRAIN_RATIO,
+                        help='percent of data used for training in train-test split')
     parser.add_argument('--save-test-results', action='store_true', default=SAVE_TEST_RESULTS,
                         help='whether to use gradient loss')
     parser.add_argument('--n-classes', default=N_CLASSES, type=int, metavar='N',
@@ -436,6 +309,7 @@ if __name__ == '__main__':
 
     # Traning related setup
     model = TrajPredictor(args.window_size * 3)
+    model.double()
     if args.cuda:
         model = torch.nn.DataParallel(model).cuda()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -444,15 +318,29 @@ if __name__ == '__main__':
     logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
 
     # load data
-    train_data, test_data, train_target, test_target, train_seq_inds, test_seq_inds = load_data(args.data_dir)
+    print('Begin loading data from {}...'.format(args.data_dir))
 
-    train_data = torch.FloatTensor(train_data)
-    train_target = torch.FloatTensor(train_target)
-    test_data = torch.FloatTensor(test_data)
-    test_target = torch.FloatTensor(test_target)
+    # train_data, test_data, train_target, test_target, train_seq_inds, test_seq_inds = load_data(args.data_dir)
+    #
+    # train_data = torch.FloatTensor(train_data)
+    # train_target = torch.FloatTensor(train_target)
+    # test_data = torch.FloatTensor(test_data)
+    # test_target = torch.FloatTensor(test_target)
+    #
+    # final_train_data = torch.utils.data.TensorDataset(train_data, train_target)
+    # final_test_data = torch.utils.data.TensorDataset(test_data, test_target)
 
-    final_train_data = torch.utils.data.TensorDataset(train_data, train_target)
-    final_test_data = torch.utils.data.TensorDataset(test_data, test_target)
+    # train-test split
+    seq_dirs = [f.path for f in os.scandir(args.data_dir) if f.is_dir()]
+    num_seq = len(seq_dirs)
+    split_idx = int(round(args.train_ratio * num_seq))
+    np.random.shuffle(seq_dirs)
+    train_seqs = seq_dirs[:split_idx]
+    test_seqs = seq_dirs[split_idx:]
+    print('Split data into {} training sequences and {} testing sequences.'.format(len(train_seqs), len(test_seqs)))
+
+    final_train_data = assembly_dataset(train_seqs, args.window_size)
+    final_test_data = assembly_dataset(test_seqs, args.window_size)
 
     trainloader = torch.utils.data.DataLoader(final_train_data, batch_size=args.train_batch, shuffle=True,
                                               num_workers=args.workers)
@@ -460,8 +348,14 @@ if __name__ == '__main__':
                                              num_workers=args.workers)
 
     # saving training and testing sequence indices
-    np.save(os.path.join(results_dir, 'train_seq_inds.npy'), train_seq_inds)
-    np.save(os.path.join(results_dir, 'test_seq_inds.npy'), test_seq_inds)
+    with open(os.path.join(results_dir, 'train_seqs.p'), 'wb') as f:
+        pickle.dump(train_seqs, f)
+
+    with open(os.path.join(results_dir, 'test_seqs.p'), 'wb') as f:
+        pickle.dump(test_seqs, f)
+
+    # np.save(os.path.join(results_dir, 'train_seq_inds.npy'), np.array(train_seq_inds))
+    # np.save(os.path.join(results_dir, 'test_seq_inds.npy'), np.array(test_seq_inds))
 
     # Train
     print('Begin training...')
