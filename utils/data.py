@@ -72,6 +72,15 @@ class assembly_dataset(Dataset):
 
         return data, target
 
+    def get_labels(self):
+        print('Loading data sequence labels...')
+        labels_dict = {}
+        for data_dir_idx in tqdm(range(len(self.data_dirs))):
+            data_dir = self.data_dirs[data_dir_idx]
+            labels = np.load(os.path.join(data_dir, 'labels.npy'))
+            labels_dict[data_dir] = labels
+        return labels_dict
+
 
 def load_data(data_dir, window_size=2, train_ratio=0.8, img_dim=(128, 128, 3)):
     """

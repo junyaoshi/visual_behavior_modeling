@@ -5,6 +5,7 @@ from .logger import *
 from .visualize import *
 from .eval import *
 from .data import *
+from .loss import *
 
 # progress bar
 import os, sys
